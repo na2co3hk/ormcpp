@@ -1,16 +1,16 @@
-#include<iostream>
-#include"ormcpp/ormcpp.h"
+#include <iostream>
+#include "ormcpp/ormcpp.h"
 using namespace std;
 
 class Person {
 public:
 	DEFINE_TABLE(Person, id, name, age);
 
-	INTEGER id;
+	int id;
 
-	TEXT name;
+	std::string name;
 
-	INTEGER age;
+	int age;
 };
 
 int main() {
