@@ -105,37 +105,43 @@ public:
 
 #define EMBER_REFLECTION(className) \
 template<typename T> \
-T getValue(const std::string& name) { \
-    return this->*metaData[name].to<T className::*>(); \
+T getValue(const std::string& fieldName) { \
+    return this->*metaData[fieldName].to<T className::*>(); \
 } \
 template<typename T> \
-void setValue(const std::string& name, const T& value) { \
-    this->*metaData[name].to<T className::*>() = value; \
+void setValue(const std::string& fieldName, const T& value) { \
+    this->*metaData[fieldName].to<T className::*>() = value; \
 } \
 template<typename T = void, typename... Args> \
-T invokeMethod(const std::string& name, Args &&... args) { \
+T invokeMethod(const std::string& methodName, Args &&... args) { \
     using Method = T (className::*)(Args...); \
-    auto method = metaData[name].to<Method>(); \
+    auto method = metaData[methodName].to<Method>(); \
     return (static_cast<className*>(this)->*method)(std::forward<Args>(args)...); \
 } \
 
-#define EMBER_PROPERTY(className, name) \
-int name##InitMetaData = [this]() -> int { \
-    metaData[#name] = &className::name; \
+#define EMBER_PROPERTY(className, fieldName) \
+int fieldName##InitMetaData = [this]() -> int { \
+    metaData[#fieldName] = &className::fieldName; \
     return 0; \
 }();
 
-#define EMBER_METHOD(className, method) \
-int method##InitMetaData = [this]() -> int { \
-    metaData[#method] = &className::method; \
+#define EMBER_METHOD(className, methodName) \
+int methodName##InitMetaData = [this]() -> int { \
+    metaData[#methodName] = &className::methodName; \
     return 0; \
 }();
 
-#define EMBER_PROPERTY_REGISTER(className, name) \
-metaData[#name] = &className::name;
+#define EMBER_PROPERTY_REGISTER(className, fieldName) \
+metaData[#fieldName] = &className::fieldName;
 
-#define EMBER_METHOD_REGISTER(className, method) \
-metaData[#method] = &className::method;
+#define EMBER_METHOD_REGISTER(className, methodName) \
+metaData[#methodName] = &className::methodName;
+
+#define EMBER_PROPERTY_REGISTER_ALIAS(className, fieldName, aliasName) \
+metaData[aliasName] = &className::fieldName;
+
+#define EMBER_METHOD_REGISTER_ALIAS(className, methodName, aliasName) \
+metaData[aliasName] = &className::methodName;
 
 } // namespace Ember
 
