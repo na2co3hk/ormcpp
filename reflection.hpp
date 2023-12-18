@@ -103,6 +103,8 @@ template<typename T>
 class FixedBasicString {
 private:
     using CharType = T;
+    using Iterator = CharType *;
+    using ConstIterator = const CharType *;
     CharType const *data;
     size_t length;
 public:
@@ -146,15 +148,15 @@ public:
         return length < other.length;
     }
 
-    constexpr const CharType* getData() const {
+    constexpr ConstIterator getData() const {
         return data;
     }
 
-    constexpr const CharType* begin() const {
+    constexpr ConstIterator begin() const {
         return data;
     }
 
-    constexpr const CharType * end() const {
+    constexpr ConstIterator end() const {
         return data + length;
     }
 };
@@ -191,37 +193,9 @@ struct StringHash {
 using FixedString = FixedBasicString<char>;
 #endif
 
-#if __cplusplus >= 201402L
-class Object {
-public:
-    std::unordered_map<FixedString, Any, StringHash<FixedString>>metaData;
-};
-#else
-class Object {
-public:
-    std::unordered_map<std::string, Any>metaData;
-};
-#endif
-
-#if __cplusplus >= 201402L
 #define EMBER_REFLECTION(className) \
-template<typename T> \
-T getValue(const Ember::FixedString& fieldName) { \
-    return this->*metaData[fieldName].to<T className::*>(); \
-} \
-template<typename T> \
-void setValue(const Ember::FixedString& fieldName, const T& value) { \
-    this->*metaData[fieldName].to<T className::*>() = value; \
-} \
-template<typename T = void, typename... Args> \
-T invokeMethod(const Ember::FixedString& methodName, Args &&... args) { \
-    using Method = T (className::*)(Args...); \
-    auto method = metaData[methodName].to<Method>(); \
-    return (static_cast<className*>(this)->*method)(std::forward<Args>(args)...); \
-} \
-
-#else
-#define EMBER_REFLECTION(className) \
+static std::unordered_map<std::string, Ember::Any>metaData; \
+static std::unordered_map<std::string, Ember::Any>methodList; \
 template<typename T> \
 T getValue(const std::string& fieldName) { \
     return this->*metaData[fieldName].to<T className::*>(); \
@@ -233,21 +207,29 @@ void setValue(const std::string& fieldName, const T& value) { \
 template<typename T = void, typename... Args> \
 T invokeMethod(const std::string& methodName, Args &&... args) { \
     using Method = T (className::*)(Args...); \
-    auto method = metaData[methodName].to<Method>(); \
+    auto method = methodList[methodName].to<Method>(); \
     return (static_cast<className*>(this)->*method)(std::forward<Args>(args)...); \
 } \
+std::unordered_map<std::string , Ember::Any>& listFieldProperty() const { \
+    return metaData; \
+} \
+std::unordered_map<std::string, Ember::Any>& listMethodProperty() const { \
+    return methodList; \
+}
 
-#endif
+#define EMBER_REFLECTION_ANNOTATION(className) \
+std::unordered_map<std::string, Ember::Any> className::metaData; \
+std::unordered_map<std::string, Ember::Any> className::methodList; \
 
 #define EMBER_PROPERTY(className, fieldName) \
-int fieldName##InitMetaData = [this]() -> int { \
+int fieldName##InitMetaData = []() -> int { \
     metaData[#fieldName] = &className::fieldName; \
     return 0; \
 }();
 
 #define EMBER_METHOD(className, methodName) \
-int methodName##InitMetaData = [this]() -> int { \
-    metaData[#methodName] = &className::methodName; \
+int methodName##InitMetaData = []() -> int { \
+    methodList[#methodName] = &className::methodName; \
     return 0; \
 }();
 
@@ -255,13 +237,71 @@ int methodName##InitMetaData = [this]() -> int { \
 metaData[#fieldName] = &className::fieldName;
 
 #define EMBER_METHOD_REGISTER(className, methodName) \
-metaData[#methodName] = &className::methodName;
+methodList[#methodName] = &className::methodName;
 
 #define EMBER_PROPERTY_REGISTER_ALIAS(className, fieldName, aliasName) \
 metaData[aliasName] = &className::fieldName;
 
 #define EMBER_METHOD_REGISTER_ALIAS(className, methodName, aliasName) \
-metaData[aliasName] = &className::methodName;
+methodList[aliasName] = &className::methodName;
+
+class Monster {
+public:
+    EMBER_REFLECTION(Monster)
+
+    int getHP() const{
+        return HP;
+    }
+
+    void setHP(int value) {
+        HP = value;
+    }
+
+    std::string getName() const {
+        return name;
+    }
+
+    void setName(const std::string& value) {
+        name = value;
+    }
+
+    EMBER_METHOD(Monster, attack)
+    void attack() {
+        HP -= 10;
+    }
+
+private:
+    EMBER_PROPERTY(Monster, HP) int HP{};
+    EMBER_PROPERTY(Monster, name) std::string name;
+};
+EMBER_REFLECTION_ANNOTATION(Monster)
+
+void test() {
+    Monster monster;
+    monster.setHP(3);
+    monster.setName("monster");
+    auto t = monster.listFieldProperty();
+    for (auto& d : t) {
+        using MonsterInt = int Monster::*;
+        using MonsterString = std::string Monster::*;
+        if (d.first == "HP") {
+            std::cout << d.first << ": " << monster.*d.second.to<MonsterInt>() << std::endl;
+        } else if (d.first == "name") {
+            std::cout << d.first << ": " << monster.*d.second.to<MonsterString>() << std::endl;
+        }
+    }
+    std::cout << std::endl;
+    auto m = monster.listMethodProperty();
+    for (const auto& d : m) {
+        std::cout << d.first << ' ';
+    }
+    std::cout << std::endl;
+    std::cout << monster.getValue<int>("HP") << std::endl;
+    monster.setValue<int>("HP", 16);
+    std::cout << monster.getValue<int>("HP") << std::endl;
+    monster.invokeMethod<>("attack");
+    std::cout << monster.getValue<int>("HP") << std::endl;
+}
 
 } // namespace Ember
 
