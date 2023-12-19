@@ -197,6 +197,8 @@ using FixedString = FixedBasicString<char>;
 static std::unordered_map<std::string, Ember::Any>metaData; \
 static std::unordered_map<std::string, Ember::Any>methodList; \
 template<typename T> \
+using TypeOf = T className::*; \
+template<typename T> \
 T getValue(const std::string& fieldName) { \
     return this->*metaData[fieldName].to<T className::*>(); \
 } \
@@ -282,12 +284,10 @@ void test() {
     monster.setName("monster");
     auto t = monster.listFieldProperty();
     for (auto& d : t) {
-        using MonsterInt = int Monster::*;
-        using MonsterString = std::string Monster::*;
         if (d.first == "HP") {
-            std::cout << d.first << ": " << monster.*d.second.to<MonsterInt>() << std::endl;
+            std::cout << d.first << ": " << monster.*d.second.to<Monster::TypeOf<int>>() << std::endl;
         } else if (d.first == "name") {
-            std::cout << d.first << ": " << monster.*d.second.to<MonsterString>() << std::endl;
+            std::cout << d.first << ": " << monster.*d.second.to<Monster::TypeOf<std::string>>() << std::endl;
         }
     }
     std::cout << std::endl;
