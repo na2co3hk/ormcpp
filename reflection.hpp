@@ -221,7 +221,7 @@ std::unordered_map<std::string, Ember::Any>& listMethodProperty() const { \
 
 #define EMBER_REFLECTION_ANNOTATION(className) \
 std::unordered_map<std::string, Ember::Any> className::metaData; \
-std::unordered_map<std::string, Ember::Any> className::methodList; \
+std::unordered_map<std::string, Ember::Any> className::methodList; 
 
 #define EMBER_PROPERTY(className, fieldName) \
 int fieldName##InitMetaData = []() -> int { \
