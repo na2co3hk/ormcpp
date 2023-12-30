@@ -1,310 +1,207 @@
 //
-// Created by Manjusaka on 2023/12/17.
+// Created by Manjusaka on 2023/12/27.
 //
 
 #ifndef EMBER_REFLECTION_HPP
 #define EMBER_REFLECTION_HPP
 
-#include<iostream>
-#include<string>
-#include<unordered_map>
-#include<memory>
-#include<functional>
-#include<memory>
-#include<typeindex>
+#include "any.hpp"
+#include "string_view.hpp"
 
 namespace Ember {
 
-struct Any {
+class Field {
+public:
+    Field() = default;
 
-    Any(void) : tpIndex_(std::type_index(typeid(void))) {}
-    Any(const Any& that) :
-            ptr_(that.clone()),
-            tpIndex_(that.tpIndex_) {}
-    Any(Any&& that) :
-            ptr_(std::move(that.ptr_)),
-            tpIndex_(that.tpIndex_) {}
+    template<typename Class, typename T>
+    Field(T Class::* var):
+        field(var),
+        fieldName(StringView(typeid(var).name())) {}
 
-    template<typename U, class = typename std::enable_if<
-            !std::is_same<typename std::decay<U>::type, Any>::value, U>::type> Any(U&& value) :
-            ptr_(new AnyDerived<typename std::decay<U>::type>(std::forward<U>(value))),
-            tpIndex_(std::type_index(typeid(typename std::decay<U>::type))) {}
-
-    bool isNull() const {
-        return !bool(ptr_);
+    StringView name() const {
+        return fieldName;
     }
 
-    template<class U>
-    bool is() const {
-        return tpIndex_ == std::type_index(typeid(U));
+    void setName(StringView name) {
+        fieldName = name;
     }
 
-    //转换为实际类型
-    template<class U>
-    U& to() {
-        if (!is<U>()) {
-            throw std::invalid_argument("type error");
+    template<typename T, typename Class>
+    T getValue(const Class& obj) {
+        return obj.*field.to<T Class::*>();
+    }
+
+    template<typename Class, typename T>
+    void setValue(Class& obj, T val) {
+        obj.*field.to<T Class::*>() = val;
+    }
+
+private:
+    StringView fieldName;
+    Any field;
+};
+
+class Method {
+public:
+    Method() = default;
+
+    template<typename T = void, typename... Args, typename Class>
+    Method(T (Class::* func)(Args...)):
+        isConst(false),
+        method(func),
+        methodName(StringView(typeid(func).name())) {}
+
+    template<typename T = void, typename... Args, typename Class>
+    Method(T (Class::* func)(Args...) const):
+        isConst(true),
+        method(func),
+        methodName(StringView(typeid(func).name())) {}
+
+    StringView name() const {
+        return methodName;
+    }
+
+    void setName(StringView name) {
+        methodName = name;
+    }
+
+    template<typename T = void, typename Class, typename... Args>
+    T invoke(Class& obj, Args... args) {
+        using MethodType = T (Class::*)(Args...);
+        using ConstMethodType = T (Class::*)(Args...) const;
+        if (isConst) {
+            return (static_cast<Class*>(&obj)->*method.to<ConstMethodType>())(std::forward<Args>(args)...);
         }
-
-        auto* Derived = dynamic_cast<AnyDerived<U>*>(ptr_.get());
-        return Derived->value_;
+        return (static_cast<Class*>(&obj)->*method.to<MethodType>())(std::forward<Args>(args)...);
     }
 
-    Any& operator=(const Any& a) {
-        if (ptr_ == a.ptr_) {
+private:
+    StringView methodName;
+    Any method;
+    bool isConst{false};
+};
+
+namespace Builder {
+    template<typename T>
+    class ReflectionBuilder {
+    public:
+        ReflectionBuilder() = default;
+
+        template<typename Class, typename R>
+        ReflectionBuilder<T>& addField(StringView fieldName, R Class::* var) {
+            Field field = var;
+            field.setName(fieldName);
+            type.fields.push_back(field);
             return *this;
         }
-        ptr_ = a.clone();
-        tpIndex_ = a.tpIndex_;
-        return *this;
-    }
 
-private:
-    struct AnyBase;
-    using AnyBasePtr = std::unique_ptr<AnyBase>;
+        template<typename Class, typename R, typename... Args>
+        ReflectionBuilder<T>& addMethod(StringView methodName, R (Class::* func)(Args...)) {
+            Method method = func;
+            method.setName(methodName);
+            type.methods.push_back(method);
+            return *this;
+        }
 
-    struct AnyBase {
-        virtual ~AnyBase() = default;
-        virtual AnyBasePtr clone() const = 0;
+        template<typename Class, typename R, typename... Args>
+        ReflectionBuilder<T>& addMethod(StringView methodName, R (Class::* func)(Args...) const) {
+            Method method = func;
+            method.setName(methodName);
+            type.methods.push_back(method);
+        }
+
+        T build() const {
+            return type;
+        }
+    private:
+        T type;
     };
+}
 
-    template<typename T>
-    struct AnyDerived : AnyBase {
-
-        template<typename U>
-        AnyDerived(U&& value) :
-                value_(value) {}
-
-        AnyBasePtr clone() const override {
-            return AnyBasePtr(new AnyDerived<T>(value_));
-        }
-
-        T& ReturnValue() const {
-            return value_;
-        }
-
-        T value_;
-    };
-
-    AnyBasePtr clone() const {
-        if (ptr_ != nullptr) {
-            return ptr_->clone();
-        }
-        return nullptr;
-    }
-
-    AnyBasePtr ptr_;
-    std::type_index tpIndex_;
-
-};
-
-#if __cplusplus >= 201402L
-template<typename T>
-class FixedBasicString {
-private:
-    using CharType = T;
-    using Iterator = CharType *;
-    using ConstIterator = const CharType *;
-    CharType const *data;
-    size_t length;
+class Type {
 public:
-    template <size_t N>
-    constexpr FixedBasicString(CharType const (&data)[N]) : data(data), length(N - 1) {}
-    constexpr FixedBasicString(CharType const *data, size_t size): data(data), length(size) {}
+    Type() = default;
 
-    constexpr FixedBasicString(const FixedBasicString&) noexcept = default;
-    constexpr FixedBasicString &operator=(const FixedBasicString&) noexcept = default;
-
-    constexpr size_t getLength() const {
-        return length;
+    StringView name() const {
+        return typeName;
     }
 
-    constexpr CharType operator[](size_t index) const {
-        return data[index];
+    void setName(StringView name) {
+        typeName = name;
     }
 
-    constexpr bool operator==(const FixedBasicString &other) const {
-        if (length != other.length) {
-            return false;
-        }
-        for (size_t i = 0;i < length; i++) {
-            if (data[i] != other.data[i]) {
-                return false;
+    const std::vector<Field>& listFields() const {
+        return fields;
+    }
+
+    const std::vector<Method>& listMethods() const {
+        return methods;
+    }
+
+    Field getField(StringView fieldName) const {
+        for (const auto & field : fields) {
+            if (field.name() == fieldName) {
+                return field;
             }
         }
-        return true;
+        return {};
     }
 
-    constexpr bool operator<(const FixedBasicString &other) const {
-        unsigned i = 0;
-        for (; i < length and i < other.length; i++) {
-            if ((*this)[i] < other[i]) {
-                return true;
-            }
-            if ((*this)[i] > other[i]) {
-                return false;
+    Method getMethod(StringView methodName) const {
+        for (const auto & method : methods) {
+            if (method.name() == methodName) {
+                return method;
             }
         }
-        return length < other.length;
+        return {};
     }
-
-    constexpr ConstIterator getData() const {
-        return data;
-    }
-
-    constexpr ConstIterator begin() const {
-        return data;
-    }
-
-    constexpr ConstIterator end() const {
-        return data + length;
-    }
-};
-
-template<typename String>
-constexpr size_t stringHash(const String& value) {
-    size_t d = 5381;
-    for (const auto c : value) {
-        d = d * 33 + static_cast<size_t>(c);
-    }
-    return d;
-}
-
-// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
-// With the lowest bits removed, based on experimental setup.
-template<typename String>
-constexpr size_t stringHash(const String& value, size_t seed) {
-    std::size_t d = (0x811c9dc5 ^ seed) * static_cast<size_t>(0x01000193);
-    for (const auto& c : value)
-        d = (d ^ static_cast<size_t>(c)) * static_cast<size_t>(0x01000193);
-    return d >> 8;
-}
-
-template<typename T>
-struct StringHash {
-    constexpr size_t operator() (T value) const {
-        return stringHash(value);
-    }
-    constexpr size_t operator() (T value, size_t seed) const {
-        return stringHash(value, seed);
-    }
-};
-
-using FixedString = FixedBasicString<char>;
-#endif
-
-#define EMBER_REFLECTION(className) \
-static std::unordered_map<std::string, Ember::Any>metaData; \
-static std::unordered_map<std::string, Ember::Any>methodList; \
-template<typename T> \
-using TypeOf = T className::*; \
-template<typename T> \
-T getValue(const std::string& fieldName) { \
-    return this->*metaData[fieldName].to<T className::*>(); \
-} \
-template<typename T> \
-void setValue(const std::string& fieldName, const T& value) { \
-    this->*metaData[fieldName].to<T className::*>() = value; \
-} \
-template<typename T = void, typename... Args> \
-T invokeMethod(const std::string& methodName, Args &&... args) { \
-    using Method = T (className::*)(Args...); \
-    auto method = methodList[methodName].to<Method>(); \
-    return (static_cast<className*>(this)->*method)(std::forward<Args>(args)...); \
-} \
-std::unordered_map<std::string , Ember::Any>& listFieldProperty() const { \
-    return metaData; \
-} \
-std::unordered_map<std::string, Ember::Any>& listMethodProperty() const { \
-    return methodList; \
-}
-
-#define EMBER_REFLECTION_ANNOTATION(className) \
-std::unordered_map<std::string, Ember::Any> className::metaData; \
-std::unordered_map<std::string, Ember::Any> className::methodList; 
-
-#define EMBER_PROPERTY(className, fieldName) \
-int fieldName##InitMetaData = []() -> int { \
-    metaData[#fieldName] = &className::fieldName; \
-    return 0; \
-}();
-
-#define EMBER_METHOD(className, methodName) \
-int methodName##InitMetaData = []() -> int { \
-    methodList[#methodName] = &className::methodName; \
-    return 0; \
-}();
-
-#define EMBER_PROPERTY_REGISTER(className, fieldName) \
-metaData[#fieldName] = &className::fieldName;
-
-#define EMBER_METHOD_REGISTER(className, methodName) \
-methodList[#methodName] = &className::methodName;
-
-#define EMBER_PROPERTY_REGISTER_ALIAS(className, fieldName, aliasName) \
-metaData[aliasName] = &className::fieldName;
-
-#define EMBER_METHOD_REGISTER_ALIAS(className, methodName, aliasName) \
-methodList[aliasName] = &className::methodName;
-
-class Monster {
-public:
-    EMBER_REFLECTION(Monster)
-
-    int getHP() const{
-        return HP;
-    }
-
-    void setHP(int value) {
-        HP = value;
-    }
-
-    std::string getName() const {
-        return name;
-    }
-
-    void setName(const std::string& value) {
-        name = value;
-    }
-
-    EMBER_METHOD(Monster, attack)
-    void attack() {
-        HP -= 10;
-    }
-
 private:
-    EMBER_PROPERTY(Monster, HP) int HP{};
-    EMBER_PROPERTY(Monster, name) std::string name;
-};
-EMBER_REFLECTION_ANNOTATION(Monster)
+    friend Builder::ReflectionBuilder<Type>;
 
-void test() {
-    Monster monster;
-    monster.setHP(3);
-    monster.setName("monster");
-    auto t = monster.listFieldProperty();
-    for (auto& d : t) {
-        if (d.first == "HP") {
-            std::cout << d.first << ": " << monster.*d.second.to<Monster::TypeOf<int>>() << std::endl;
-        } else if (d.first == "name") {
-            std::cout << d.first << ": " << monster.*d.second.to<Monster::TypeOf<std::string>>() << std::endl;
-        }
+    StringView typeName;
+    std::vector<Field> fields;
+    std::vector<Method> methods;
+};
+using TypeBuilder = Builder::ReflectionBuilder<Type>;
+
+class TypeRegister {
+public:
+    static TypeRegister& instance() {
+        static TypeRegister instance;
+        return instance;
     }
-    std::cout << std::endl;
-    auto m = monster.listMethodProperty();
-    for (const auto& d : m) {
-        std::cout << d.first << ' ';
+
+    void registerType(StringView typeName, const Type& type) {
+        types[typeName] = type;
     }
-    std::cout << std::endl;
-    std::cout << monster.getValue<int>("HP") << std::endl;
-    monster.setValue<int>("HP", 16);
-    std::cout << monster.getValue<int>("HP") << std::endl;
-    monster.invokeMethod<>("attack");
-    std::cout << monster.getValue<int>("HP") << std::endl;
-}
+
+    Type& getType(StringView typeName) {
+        return types[typeName];
+    }
+private:
+    std::unordered_map<StringView, Type, StringHash<StringView>> types;
+};
+
+class Reflect {
+public:
+    static Type TypeOf(StringView typeName) {
+        return TypeRegister::instance().getType(typeName);
+    }
+
+    static void Register(StringView typeName, const TypeBuilder& builder) {
+        TypeRegister::instance().registerType(typeName, builder.build());
+    }
+
+    template<typename T, typename... Args>
+    static std::shared_ptr<T> ValueOf(Args &&... args) {
+        return std::make_shared<T>(std::forward<Args>(args)...);
+    }
+};
+
+#define EmberUseReflect(type) \
+__attribute__((constructor)) void init##Type()
 
 } // namespace Ember
-
-
 
 #endif //EMBER_REFLECTION_HPP
